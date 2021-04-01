@@ -1,0 +1,6 @@
+
+config/
+
+output_frames/
+
+py_ret_det_multigpu/images/
