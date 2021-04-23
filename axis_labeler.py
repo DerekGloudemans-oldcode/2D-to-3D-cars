@@ -116,7 +116,7 @@ class Axis_Labeler():
     def save(self):
         if len(self.axes) == 0:
             return
-        sequence = self.directory.split(".")[0].split("/")[-1]
+        sequence = self.directory.split(".")[0].split("/")[-1].split("_")[1]
         name = "config/" + sequence + "_axes.csv"
         if os.path.exists(name): # don't overwrite
             overwrite = input("Overwrite existing file? (y/n)")
@@ -133,7 +133,7 @@ class Axis_Labeler():
             writer.writerows(outputs)
         print("Saved axes as file {}".format(name))
         
-        name = "config/" + name.split(".csv")[0] + "_axes.png"
+        name = "config/" + name.split(".csv")[0].split("_")[1] + ".png"
         cv2.imwrite(name,self.cur_image)
         
         

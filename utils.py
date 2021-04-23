@@ -37,7 +37,7 @@ def get_avg_frame(video_sequence ,n = 2000,ds = 1):
         except:
             avg_frame = frame
     
-        print("\r On frame: {}, FPS: {:5.2f}".format(frame_num, frame_num / (time.time() - start)),end = '\r', flush = True)
+        print("\r Averaging frame: {}, FPS: {:5.2f}".format(frame_num, frame_num / (time.time() - start)),end = '\r', flush = True)
     
         # get next frame
         ret, frame = cap.read()
@@ -71,18 +71,17 @@ def plot_3D(frame,box,vp1,vp2,vp3,threshold = 100,color = None):
     return frame
 
 
-def plot_vp_boxes(im,parameters,vp1,vp2,vp3):
+def plot_vp_boxes(im,parameters,vp1,vp2,vp3, HIT = None):
     """
     Plots lines according to parameters, which specifies a slope and intercept per line
     """
-    
+    vp1 = (int(vp1[0]),int(vp1[1]))
+    vp2 = (int(vp2[0]),int(vp2[1]))
+    vp3 = (int(vp3[0]),int(vp3[1]))
+        
     for idx,row in enumerate(parameters):
         # for each, we'll draw a line that ends at x = 0 and x = image width to be safe
         # y-y0 = m(x-x0)
-        vp1 = (int(vp1[0]),int(vp1[1]))
-        vp2 = (int(vp2[0]),int(vp2[1]))
-        vp3 = (int(vp3[0]),int(vp3[1]))
-
         x = 0
         y = row[0] * (x - vp1[0]) + vp1[1]
         im = cv2.line(im,(int(x),int(y)),(vp1[0],vp1[1]),colors[idx], 1)
@@ -130,6 +129,22 @@ def plot_vp_boxes(im,parameters,vp1,vp2,vp3):
         x = im.shape[1]
         y = row[5] * (x - vp3[0]) + vp3[1]
         im = cv2.line(im,(int(x),int(y)),(vp3[0],vp3[1]),colors[idx], 1)
+        
+    if HIT is not None:
+        [i,j] = HIT
+        x = 0
+        if j in [0,1]:
+            vp = vp1
+        if j in [2,3]:
+            vp = vp2
+        if j in [4,5]:
+            vp = vp3
+        y = parameters[i,j] * (x - vp[0]) + vp[1]
+        im = cv2.line(im,(int(x),int(y)),(vp[0],vp[1]),(255,255,255), 2)
+        
+        x = im.shape[1]
+        y = parameters[i,j] * (x - vp[0]) + vp[1]
+        im = cv2.line(im,(int(x),int(y)),(vp[0],vp[1]),(255,255,255), 2)
         
     cv2.imshow("Frame",im)
     cv2.waitKey(1)
@@ -137,12 +152,14 @@ def plot_vp_boxes(im,parameters,vp1,vp2,vp3):
     
     return im
 
-def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,delta = 3,epsilon =1,granularity = 1e-01,show = True, verbose = False):
+def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show = True, verbose = False):
     
     start = time.time()
     
     # to start, we define a 3D bbox guess
-    parameters = init_parameters(boxes,vp1,vp2,vp3,delta = delta)
+    parameters,eps= init_parameters(boxes,vp1,vp2,vp3,e_init = e_init)
+
+    
     original_parameters = parameters.copy()
     #plot_vp_boxes(diff,parameters,vp1,vp2,vp3) 
     
@@ -152,11 +169,13 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,delta = 3,epsilon =1,granularity = 1e-01
         box = box.astype(int)
         diff_clip[box[1]:box[3],box[0]:box[2]] *= (idx+2)
       
-    if verbose: print("Init/ preprocess took {} sec".format(time.time() - start))
+    if verbose: print("\nInit/ preprocess took {} sec".format(time.time() - start))
     start = time.time()
     
+    iterations = 0
     anomalies = []
     for i in range(len(parameters)):
+        epsilons = eps[i]
         for j in range(len(parameters[0])):
             # determine which way to move line to contract box
             if j in [0,2,4]:
@@ -165,36 +184,41 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,delta = 3,epsilon =1,granularity = 1e-01
                 sign = -1
             
             iteration = 0
-            while iteration*epsilon < 200:
+            while iteration <200:
                 iteration += 1
                 if j in [0,1]:
                     vp = vp1
+                    epsilon = epsilons[0]
                 if j in [2,3]:
                     vp = vp2
+                    epsilon = epsilons[1]
                 if j in [4,5]:
                     vp = vp3
+                    epsilon = epsilons[2]
                 
                 new_angle  = parameters[i,j] + (epsilon * sign)
                 slope = math.tan(new_angle*math.pi/180)
                 
-                ratio = dividing_line(diff_clip,slope,vp,obj_idx = i + 2)
+                ratio = dividing_line2(diff_clip,slope,vp,obj_idx = i + 2)
                 
                 if ratio > 0.5 :#or ratio < 1-cut_ratio:
                     parameters[i,j] = new_angle
+                    HIT = None
                 else:
-                    sign /= 10.0
+                    sign /= 3.5
+                    HIT = [i,j]
                     if np.abs(sign) < granularity:
+                        iterations += iteration
                         break
                 
                 if show:
                     slope_parameters = np.tan(parameters*np.pi/180)
-                    diff_new =  plot_vp_boxes(diff.copy(),slope_parameters,vp1,vp2,vp3)
+                    diff_new =  plot_vp_boxes(diff.copy(),slope_parameters,vp1,vp2,vp3,HIT = HIT)
             
-            if iteration* epsilon >= 200:
-                anomalies.append(i)
-                break
+            if iteration >= 200:
+                return "Error"
     
-    if verbose: print("Drawing primary lines took {} sec".format(time.time() - start))
+    if verbose: print("Drawing primary lines took {} sec, {} iterations".format(time.time() - start,iterations))
     start = time.time()
     
     # parameters now define the angle of each line
@@ -530,29 +554,56 @@ def plot_vp(sequence,vp1 = None,vp2 = None, vp3 = None,mesh_width = 200, ds = 1)
                   frame = cv2.line(frame,(int(vp3[0]),int(vp3[1])),point,(0,0,255),1)
 
     cv2.imshow("frame",frame)
-    cv2.waitKey(2000)
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
     
 
-def init_parameters(boxes,vp1,vp2,vp3,delta = 45):
+def init_parameters(boxes,vp1,vp2,vp3,delta = 45,e_init = 1e-01):
     
 
     # define some initial boxes (6 parameters for each box)
     # we can define each line by an angle (since we know one point, the vanishing point)
     parameters = np.zeros([len(boxes),6]) # angles for each line, for each box
+    epsilons = np.zeros([len(boxes),3])
     for b_idx, box in enumerate(boxes):
         # get angle to center of bbox +- a small epsilon from each vp
         bx = (box[0] + box[2]) / 2.0
         by = (box[1] + box[3]) / 2.0
         
-        # find slope
+        # find angle
         a1 = 180/math.pi*math.atan2((by-vp1[1]),(bx-vp1[0]))
         a2 = 180/math.pi*math.atan2((by-vp2[1]),(bx-vp2[0]))
         a3 = 180/math.pi*math.atan2((by-vp3[1]),(bx-vp3[0]))
         
-        parameters[b_idx,:] = np.array([a1-delta,a1+delta,a2-delta,a2+delta,a3-delta,a3+delta])
+        # get the length of the diagonal of each box
+        diag = np.sqrt((box[2]- box[0])**2 + (box[3] - box[1])**2)/2.0
         
-    return parameters 
+        
+        # get length to each box
+        l1 = np.sqrt((vp1[1] - by)**2 + (vp1[0] - bx)**2)
+        l2 = np.sqrt((vp2[1] - by)**2 + (vp2[0] - bx)**2)
+        l3 = np.sqrt((vp3[1] - by)**2 + (vp3[0] - bx)**2)
+
+        
+        # using inverse tangent, find required offset angle
+        delta1 = np.abs(180/math.pi*math.atan2(diag,l1))
+        delta2 = np.abs(180/math.pi*math.atan2(diag,l2))
+        delta3 = np.abs(180/math.pi*math.atan2(diag,l3))
+
+        buffer = 1.5
+        
+        # also initialize epsilon here relative to overall box size
+        parameters[b_idx,:] = np.array([a1-delta1*buffer,
+                                        a1+delta1*buffer,
+                                        a2-delta2*buffer,
+                                        a2+delta2*buffer,
+                                        a3-delta3*buffer,
+                                        a3+delta3*buffer
+                                        ])
+        
+        epsilons[b_idx,:] = np.array([delta1*e_init,delta2*e_init,delta3*e_init])
+        
+    return (parameters,epsilons)
    
     
 def dividing_line(diff,slope,vp,obj_idx = 1):
@@ -574,3 +625,44 @@ def dividing_line(diff,slope,vp,obj_idx = 1):
         return 1
     else:
         return 0
+    
+def dividing_line2(diff,slope,vp,obj_idx = 1):
+    """
+    Instead of computing a map over all pixels, 
+    instead get for each x value the y value of the line, 
+    then for each x,y pair check if occupied by obj_idx
+    
+    We also need to do this for each y value (back-compute x) to deal with cases where slope is near infinite
+    """
+    linex = np.arange(diff.shape[1]).astype(int)
+    liney = np.round(slope *(linex-vp[0]) + vp[1]).astype(int)
+    
+    liney2 = np.arange(diff.shape[0]).astype(int)
+    linex2 = np.round((liney2-vp[1])/slope + vp[0]).astype(int)
+    
+    for idx in range(len(linex)):
+        if liney[idx] < diff.shape[0] and liney[idx] >= 0:
+            if diff[liney[idx],linex[idx]] == obj_idx:
+                return 0
+    for idx in range(len(linex2)):
+        if linex2[idx] < diff.shape[1] and linex2[idx] >= 0:
+            if diff[liney2[idx],linex2[idx]] == obj_idx:
+                return 0
+            
+    
+    
+    return 1
+    
+    
+    
+def calc_diff(frame,avg_frame):
+    diff = np.clip(np.abs(frame.astype(int) - avg_frame.astype(int)),0,255)
+    
+    # kernel to remove small noise
+    diff = cv2.blur(diff,(5,5)).astype(np.uint8)
+    
+    # threshold
+    _,diff = cv2.threshold(diff,30,255,cv2.THRESH_BINARY)
+    diff =  diff.astype(np.uint8) # + cv2.cvtColor(edges,cv2.COLOR_GRAY2RGB)
+    
+    return diff

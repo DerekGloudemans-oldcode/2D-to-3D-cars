@@ -25,7 +25,7 @@ from utils import * # ...oooooooops...
 def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
     
     # init detector
-    GPU_ID = 1
+    GPU_ID = 3
     detector = resnet50(num_classes=13,device_id = GPU_ID)
     cp = torch.load("./config/detector.pt")
     detector.load_state_dict(cp) 
@@ -57,7 +57,7 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
     while ret: 
         frame_num += 1
         
-        out_name = "output_frames/{}.png".format(str(frame_num).zfill(4))
+        out_name = "output/{}.png".format(str(frame_num).zfill(4))
         if not os.path.exists(out_name):
             # get detections
             im = np.array(frame)[:,:,[2,1,0]].copy()
@@ -65,7 +65,7 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
             im = F.normalize(im,mean=[0.485, 0.456, 0.406],
                                       std=[0.229, 0.224, 0.225])
             
-            device = torch.device("cuda:{}".format(1))
+            device = torch.device("cuda:{}".format(GPU_ID))
             im = im.to(device).unsqueeze(0)
             scores,_,boxes = detector(im)
             
@@ -89,27 +89,36 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
             _,diff = cv2.threshold(diff,30,255,cv2.THRESH_BINARY)
             diff =  diff.astype(np.uint8) # + cv2.cvtColor(edges,cv2.COLOR_GRAY2RGB)
            
+            # cv2.imshow("diff",diff)
+            # cv2.waitKey(0)
             
-            if vps is not None:
-                boxes_3D = fit_3D_boxes(diff, boxes, vps[0], vps[1], vps[2], show = False, verbose = False)
+            if vps is not None and len(boxes) > 0 and frame_num > 7:
+                #try:
+                    boxes_3D = fit_3D_boxes(diff,boxes, vps[0], vps[1], vps[2], show = True,verbose = False, granularity = 1e-02,e_init = 3e-01)
+                # except Exception as E:
+                #     print(E)
+                #     boxes_3D = []
+            else:
+                boxes_3D = []
+            if True:
+                #plot 2D bboxes
+                for box in boxes:
+                    color = (255,0,255) #colors[int(obj.cls)]
+                    c1 =  (int(box[0]),int(box[1]))
+                    c2 =  (int(box[2]),int(box[3]))
+                    frame = cv2.rectangle(frame,c1,c2,color,1)
+        
             
-            #plot 2D bboxes
-            # for box in boxes:
-            #     color = (255,0,255) #colors[int(obj.cls)]
-            #     c1 =  (int(box[0]),int(box[1]))
-            #     c2 =  (int(box[2]),int(box[3]))
-            #     frame = cv2.rectangle(frame,c1,c2,color,1)
-        
-        
-            # plot 3D bboxes
-            for box in boxes_3D:
-                frame = plot_3D(frame,box,vp1,vp2,vp3,threshold = 200)
-                    
+                # plot 3D bboxes
+                if boxes_3D != "Error":
+                    for box in boxes_3D:
+                        frame = plot_3D(frame,box,vp1,vp2,vp3,threshold = 200)
+                        
             
     
-            cv2.imshow("3D Estimated Bboxes",frame)
-            cv2.waitKey(1000)
-            cv2.imwrite(out_name,frame)
+                cv2.imshow("3D Estimated Bboxes",frame)
+                cv2.waitKey(1)
+                cv2.imwrite(out_name,frame)
             
         print("\r On frame: {}, FPS: {:5.2f}".format(frame_num, frame_num / (time.time() - start)),end = '\r', flush = True)
         torch.cuda.empty_cache()
@@ -129,17 +138,20 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
 
 if __name__ == "__main__":
     test_sequence = "/home/worklab/Desktop/test_vid.mp4"
+    test_sequence = "/home/worklab/Data/cv/video/5_min_18_cam_October_2020/ingest_session_00005/recording/record_p1c2_00000.mp4"
+    test_sequence = "/home/worklab/Documents/derek/2D-to-3D-cars/_data/record_p1c5_00001.mp4"
+
     downsample = 2
     
     # get average frame
     try:
-        name =  "config/" + test_sequence.split("/")[-1].split(".mp4")[0] + "_avg.png"
+        name =  "config/" + test_sequence.split("/")[-1].split(".mp4")[0].split("_")[1] + "_avg.png"
         avg = cv2.imread(name)
         if avg is None:
             raise FileNotFoundError
     except:
         avg = get_avg_frame(test_sequence,ds = downsample).astype(np.uint8)
-        name = "config/" + test_sequence.split("/")[-1].split(".mp4")[0] + "_avg.png"
+        name = "config/" + test_sequence.split("/")[-1].split(".mp4")[0].split("_")[1] + "_avg.png"
         cv2.imwrite(name,avg)
    
     
@@ -147,7 +159,7 @@ if __name__ == "__main__":
     
     # get axes annotations
     try:
-        name = "config/" + test_sequence.split("/")[-1].split(".mp4")[0] + "_axes.csv"
+        name = "config/" + test_sequence.split("/")[-1].split(".mp4")[0].split("_")[1] + "_axes.csv"
         labels = []
         with open(name,"r") as f:
             read = csv.reader(f)
