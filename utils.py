@@ -163,12 +163,14 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
     original_parameters = parameters.copy()
     #plot_vp_boxes(diff,parameters,vp1,vp2,vp3) 
     
-    diff_clip = np.clip(np.max(diff,axis = 2),0,1)
+    diff_clip = np.clip(np.max(diff,axis = 2),0,1).astype(np.int8)
     # make each diff object integer-unique so fitting one box is not affected by pixels in another
     for idx, box in enumerate(boxes):
         box = box.astype(int)
-        diff_clip[box[1]:box[3],box[0]:box[2]] *= (idx+2)
-      
+        mask = (np.equal(diff_clip[box[1]:box[3],box[0]:box[2]],1).astype(np.int8) * (idx + 1)).astype(np.int8)
+        #diff_clip[box[1]:box[3],box[0]:box[2]] *= (idx+2)
+        diff_clip[box[1]:box[3],box[0]:box[2]] += mask
+
     if verbose: print("\nInit/ preprocess took {} sec".format(time.time() - start))
     start = time.time()
     
@@ -215,7 +217,7 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
                     slope_parameters = np.tan(parameters*np.pi/180)
                     diff_new =  plot_vp_boxes(diff.copy(),slope_parameters,vp1,vp2,vp3,HIT = HIT)
             
-            if iteration >= 200:
+            if iteration >= 1000:
                 return "Error"
     
     if verbose: print("Drawing primary lines took {} sec, {} iterations".format(time.time() - start,iterations))

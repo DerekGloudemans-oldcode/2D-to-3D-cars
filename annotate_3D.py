@@ -44,7 +44,7 @@ def annotate_3d_box(box_queue,results_queue,CONTINUE,vp):
             continue
         
         # fit box
-        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-02,e_init = 3e-01,show = False, verbose = False)
+        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-02,e_init = 1e-02,show = False, verbose = False)
         
         result = [box_3d,obj_idx,frame_idx,diff,vp]
         results_queue.put(result)
@@ -165,21 +165,25 @@ def process_boxes(sequence,label_file,downsample = 1):
     count = 0
     result = "None"
     errors = 0
+    removed_boxes = 0
     try:
-        while len(all_results) < len(box_labels): 
+        while len(all_results) < len(box_labels) - removed_boxes: 
             
             if count <  len(box_labels):
             
-                    
                 box = box_labels[count]
                 # format box
                 bbox = np.array(box[4:8]).astype(float) / downsample
+                
                 direction = None # TODO: the sort of thing you love to see in code -- fix later
                 obj_idx = int(box[2])
                 labeled_frame_idx = int(box[0])
                 
                 # advance current frame if necessary
-                if frame_idx < labeled_frame_idx:
+                if frame_idx != labeled_frame_idx:
+                    if frame_idx > labeled_frame_idx:
+                        print("\n Oh No! labels out of order!")
+                        
                     while frame_idx < labeled_frame_idx:
                         ret = cap.grab()
                         frame_idx += 1
@@ -191,28 +195,38 @@ def process_boxes(sequence,label_file,downsample = 1):
                 # cv2.imshow("frame",diff)
                 # cv2.waitKey(0)
                 # cv2.destroyAllWindows()
-                
                 # add box to box_queue (add extra dimension so it is a list of 1 box)
-                inp = [diff,[bbox],direction,obj_idx,frame_idx]
-                box_queue.put(inp)
+                
+                # don't add truncated boxes
+                trunc = -10
+                if bbox[0] < trunc or bbox[1] < trunc or bbox[2] > frame.shape[1] - trunc or bbox[3] > frame.shape[0] - trunc:
+                    removed_boxes += 1
+                else:
+                    inp = [diff.copy(),[bbox],direction,obj_idx,frame_idx]
+                    box_queue.put(inp)
                 count += 1
                 
                 #test 
                 #fit_3D_boxes(diff,[bbox],vps[0],vps[1],vps[2],granularity = 3e-01,e_init = 1e-01,show = True, verbose = False)
+                # bbox = bbox.astype(int)
+                # frame2  = cv2.rectangle(frame.copy(),(bbox[0],bbox[1]),(bbox[2],bbox[3]),(255,0,0),3)
+                # cv2.imshow("frame",frame2)
+                # cv2.waitKey(200)
+                
                 
             else:
                 cap.release()
-           
+                cv2.destroyAllWindows()
             
             bps = np.round(len(all_results) / (time.time() - start_time),3)
-            print("\rFrame {}, {}/{} boxes queued, {}/{} 3D boxes collected ({} bps) - Errors so far: {}".format(frame_idx,count,len(box_labels),len(all_results),len(box_labels),bps,errors),end = '\r', flush = True)  
+            print("\rFrame {}, {}/{} boxes queued, {}/{} 3D boxes collected ({} bps) - Errors so far: {}".format(frame_idx,count,len(box_labels),len(all_results),len(box_labels)-removed_boxes,bps,errors),end = '\r', flush = True)  
             
             # get result if any new results are ready
             try:
                 result = results_queue.get(timeout = 0)
                 all_results.append(result[0:2])
                 
-                diff = result[3]
+                diff = result[3].copy()
                 box_3d = result[0]
                 vp = result[4]
                 try:
