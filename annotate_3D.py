@@ -14,7 +14,7 @@ import cv2
 import queue
 import time
 
-from utils import fit_3D_boxes,get_avg_frame,find_vanishing_point,calc_diff,plot_vp,plot_3D
+from utils import fit_3D_boxes,get_avg_frame,find_vanishing_point,calc_diff,plot_vp,plot_3D_ordered
 from axis_labeler import Axis_Labeler
 
 
@@ -44,7 +44,7 @@ def annotate_3d_box(box_queue,results_queue,CONTINUE,vp):
             continue
         
         # fit box
-        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-02,e_init = 1e-02,show = False, verbose = False)
+        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-02,e_init = 1e-02,show = False, verbose = False,obj_travel = direction)
         
         result = [box_3d,obj_idx,frame_idx,diff,vp]
         results_queue.put(result)
@@ -174,8 +174,7 @@ def process_boxes(sequence,label_file,downsample = 1):
                 box = box_labels[count]
                 # format box
                 bbox = np.array(box[4:8]).astype(float) / downsample
-                
-                direction = None # TODO: the sort of thing you love to see in code -- fix later
+                direction = np.array(box[9:10] ) / downsample
                 obj_idx = int(box[2])
                 labeled_frame_idx = int(box[0])
                 
@@ -230,7 +229,7 @@ def process_boxes(sequence,label_file,downsample = 1):
                 box_3d = result[0]
                 vp = result[4]
                 try:
-                    fr = plot_3D(diff,box_3d[0],vp[0],vp[1],vp[2],threshold = 200)
+                    fr = plot_3D_ordered(diff,box_3d[0])
                     cv2.imshow("3D Estimated Bboxes",fr)
                     cv2.waitKey(1)             
                 except:

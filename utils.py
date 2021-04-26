@@ -2,6 +2,7 @@ import cv2
 import time
 import numpy as np 
 import math
+from itertools import permutations
 from scipy.spatial import ConvexHull
 
 # define a global color
@@ -68,6 +69,62 @@ def plot_3D(frame,box,vp1,vp2,vp3,threshold = 100,color = None):
             if min_dist < threshold:
                 
                 frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,1)
+    return frame
+
+def plot_3D_ordered(frame,box,color = None):
+    """
+    Plots 3D points as boxes, drawing only line segments that point towards vanishing points
+    """
+    if len(box) == 0:
+        return frame
+    
+    DRAW = [[0,1,1,0,1,0,0,0], #bfl
+            [0,0,0,1,0,1,0,0], #bfr
+            [0,0,0,1,0,0,1,1], #bbl
+            [0,0,0,0,0,0,1,1], #bbr
+            [0,0,0,0,0,1,1,0], #tfl
+            [0,0,0,0,0,0,0,1], #tfr
+            [0,0,0,0,0,0,0,1], #tbl
+            [0,0,0,0,0,0,0,0]] #tbr
+    
+    DRAW_BASE = [[0,1,1,1,0,0,0,0], #bfl
+            [0,0,1,1,0,0,0,0], #bfr
+            [0,0,0,1,0,0,0,0], #bbl
+            [0,0,0,0,0,0,0,0], #bbr
+            [0,0,0,0,0,0,0,0], #tfl
+            [0,0,0,0,0,0,0,0], #tfr
+            [0,0,0,0,0,0,0,0], #tbl
+            [0,0,0,0,0,0,0,0]] #tbr
+    
+    if color is None:
+        color = (100,255,100)
+        
+    for a in range(len(box)):
+        ab = box[a]
+        for b in range(a,len(box)):
+            bb = box[b]
+            if DRAW[a][b] == 1:
+                frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,1)
+            # if DRAW_BASE[a][b] == 1:
+            #     frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,2)
+    
+    size = 4
+    color = (0,0,255)
+    frame = cv2.circle(frame,(int(box[0][0]),int(box[0][1])),size,color,-1)
+    color = (0,100,255)
+    frame = cv2.circle(frame,(int(box[1][0]),int(box[1][1])),size,color,-1)
+    color = (0,175,255)
+    frame = cv2.circle(frame,(int(box[2][0]),int(box[2][1])),size,color,-1)
+    color = (0,255,255)
+    frame = cv2.circle(frame,(int(box[3][0]),int(box[3][1])),size,color,-1)
+    color = (255,0,0)
+    frame = cv2.circle(frame,(int(box[4][0]),int(box[4][1])),size,color,-1)
+    color = (255,100,0)
+    frame = cv2.circle(frame,(int(box[5][0]),int(box[5][1])),size,color,-1)
+    color = (255,175,0)
+    frame = cv2.circle(frame,(int(box[6][0]),int(box[6][1])),size,color,-1)
+    color = (255,255,0)
+    frame = cv2.circle(frame,(int(box[7][0]),int(box[7][1])),size,color,-1)
     return frame
 
 
@@ -152,7 +209,7 @@ def plot_vp_boxes(im,parameters,vp1,vp2,vp3, HIT = None):
     
     return im
 
-def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show = True, verbose = False):
+def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show = True, verbose = False,obj_travel = None):
     
     start = time.time()
     
@@ -175,7 +232,6 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
     start = time.time()
     
     iterations = 0
-    anomalies = []
     for i in range(len(parameters)):
         epsilons = eps[i]
         for j in range(len(parameters[0])):
@@ -371,7 +427,7 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
                 D = (x1-x2)*(y3-y4)-(y1-y2)*(x3-x4)
                 px = ((x1*y2-y1*x2)*(x3-x4)-(x1-x2)*(x3*y4-x4*y3))/D
                 py = ((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-x4*y3))/D
-                all_points.append([px,py])
+                all_points.append([px,py,polarities[i]])
         all_points = np.array(all_points)
         all_points,counts = np.unique(np.round(all_points,6),axis = 0,return_counts = True)
         all_box_points.append(all_points)
@@ -379,68 +435,185 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
     if verbose: print("Finding secondary lines and intesections took {} sec".format(time.time() - start))
     start = time.time()
     
-    if show:
-        cv2.imshow("Frame",test)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()            
-        
-    
+    if show:                   
         for box in all_box_points:
             for point in box:
-                px,py = point
-                test = cv2.circle(test,(int(px),int(py)),5,(100,100,100),-1)       
+                px,py,polarity = point
+                color = (0,255,0) if polarity == 0 else (0,0,255)
+                test = cv2.circle(test,(int(px),int(py)),5,color,-1)       
         
         cv2.imshow("Frame",test)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-    # given the 6 original points, find the remaining 2 points that create lines with the existing points that minimize the distance to the origins
-    #TODO - do this without sorting
-    for i,box in enumerate(all_box_points):
-        good_points = all_intersections[i]
-        point_scores = []
-        for point in box:
-            all_distances = []
-            best1 = np.inf
-            best2 = np.inf
-            best3 = np.inf
-            avg_dist_from_good_points = 0
-            for good in good_points:
-                if np.sum(np.round(np.array(point),4)) == np.sum(np.round(good,4)):
-                    continue
-                line = np.array([point[0],point[1],good[0],good[1]])
-                dist1 = line_to_point(line,vp1)**2
-                dist2 = line_to_point(line,vp2)**2
-                dist3 = line_to_point(line,vp3)**2
-                if dist1 < best1: best1 = dist1
-                if dist2 < best2: best2 = dist2
-                if dist3 < best3: best3 = dist3
-                
-                #avg_dist_from_good_points += ((good[1]-point[1])**2 + (good[0]-point[0])**2)
+    # Simply take the average of the points for each polarity
+    for b_idx, box in enumerate(all_box_points):
+        pol0_avg = np.zeros(2)
+        pol1_avg = np.zeros(2)
+        count0 = 0
+        count1 = 0
+    
+        for p_idx,point in enumerate(box):
+            polarity = point[2]
+            point = point[:2]
             
-            point_score = best3 + best2 + best1 #+ 10*avg_dist_from_good_points/len(good_points)
-            point_scores.append(point_score)
+            if polarity == 0:
+                pol0_avg += point
+                count0 += 1
+            else:
+                pol1_avg += point
+                count1 += 1
         
-        ps = np.array(point_scores)
-        ps_idx = np.argsort(ps)
-        all_intersections[i].append(box[ps_idx[0]])
-        all_intersections[i].append(box[ps_idx[1]])
+        pol0_avg /= count0
+        pol1_avg /= count1
+        
+        all_intersections[b_idx].append(pol0_avg)
+        all_intersections[b_idx].append(pol1_avg)
         
     if verbose: print("Parsing secondary intersections took {} sec".format(time.time() - start))
     
     if show:
         test = diff.copy() 
-        for box in all_intersections:
-          for item in box:
+        for b_idx,box in enumerate(all_intersections):
+          for i,item in enumerate(box):
             px,py = item 
-            test = cv2.circle(test,(int(px),int(py)),5,(100,100,100),-1)
+            c = 50+25 * i
+            color = (int(c),int(c),int(255-c))
+            test = cv2.circle(test,(int(px),int(py)),5,color,-1)
+          test = cv2.putText(test,"{}".format(b_idx),(int(box[0][0] -5),int(box[0][1] - 5)),cv2.FONT_HERSHEY_PLAIN,3,(255,255,255),2)
         cv2.imshow("Frame",test)
         cv2.waitKey(0)
         cv2.destroyAllWindows()    
+        
     
-    for idx in anomalies:
-        all_intersections[idx] = []
-    return all_intersections
+    #all_intersections is a list of lists, each with 8 nparray points (or none if anomalous)
+    # need to sort out 4 points closer to each vp
+    start = time.time()
+    sorted_box_points = []
+    for box in all_intersections:
+        if len(box) != 8:
+            sorted_box_points.append([])
+            continue
+        
+                
+        # get distances from each
+        vps = [vp1,vp2,vp3]
+        distances = np.zeros([8,3])
+        for p_idx, point in enumerate(box):
+            for vp_idx, vp in enumerate(vps):
+                point_to_vp = np.sqrt((point[1] - vp[1])**2 + (point[0] - vp[0])**2)
+                distances[p_idx,vp_idx] = point_to_vp
+          
+        # enumerate all possible assignments of box points
+        corners = [[0,0,0],
+                   [0,1,0],
+                   [1,0,0],
+                   [1,1,0],
+                   [0,0,1],
+                   [0,1,1],
+                   [1,0,1],
+                   [1,1,1]]
+        orders = list(permutations(corners))
+        ORDER = None
+        count = 0
+        
+        best_idx = None
+        best_dist = np.inf
+        # check each to determine whether ordering is valid
+        for o_idx, order in enumerate(orders):
+            order = np.array(order)
+            
+            CHECK, dist =  check_valid_order(order,distances,box,vps)
+            if CHECK:
+                count += 1
+                if dist < best_dist:
+                    best_dist = dist
+                    best_idx = o_idx
+                
+        ORDER= orders[best_idx]
+        # sort points in box according to:
+            # 1. bottom front left
+            # 2. bottom front right
+            # 3. bottom back left
+            # 4. bottom back right
+            # 5. top front left
+            # 6. top front right
+            # 7. top back left
+            # 8. top back right
+            
+        sort_indices = [item[2]*4 + item[0]*2 + item[1] for item in ORDER]
+        
+        box = np.array(box)
+        final_order = np.zeros([8,3])
+        final_points = np.zeros([8,2])
+        for idx,item in enumerate(sort_indices):
+            final_order[sort_indices[idx],:] = ORDER[idx]
+            final_points[sort_indices[idx],:] = box[idx]
+            
+            
+        # final_points = np.array(box)[sort_indices] # this actually does the wrong thing
+            
+    
+        # lastly, compute angle between vp1 and direction of travel to determine box front    
+        if obj_travel is not None:
+            vp_direction = [vp1[0]-box[0][0],vp1[1]-box[0][1]]
+            unit_vector_1 = vp_direction / np.linalg.norm(vp_direction)
+            unit_vector_2 = obj_travel / np.linalg.norm(obj_travel)
+            dot_product = np.dot(unit_vector_1, unit_vector_2)
+            angle = np.arccos(dot_product) * 180/math.pi
+            
+            if angle < 90:
+                # traveling towards VP
+                index = [3,2,1,0,7,6,5,4]
+                new_box_points = np.array(final_points)[index]
+                final_points = new_box_points
+                
+        sorted_box_points.append(final_points)
+
+    
+    if verbose: print("Finding orderings took {} sec".format(time.time() - start))
+
+    return sorted_box_points
+
+
+def check_valid_order(order,distances,box,vps):
+    sum_dist = 0
+    for i in range(len(distances)):
+        for j in range(i,len(distances)):
+            if i==j:
+                continue
+            
+            
+            
+            ord_diff = np.sum(np.abs(order[i] - order[j]))
+            
+            if ord_diff == 1:
+                
+                
+                # verify that the two points fall along the same line pointing to relevant vp
+                
+                # find differing dim and verify constraints are satisfied
+                
+                if order[i,0] != order[j,0]:
+                    k = 0
+                elif order[i,1] != order[j,1]: 
+                    k = 1
+                else:
+                    k = 2
+                    
+                vp = vps[k]
+                if order[i,k] == 1:
+                    if distances[i,k] < distances[j,k]:
+                        return False,None
+                else:
+                    if distances[i,k] > distances[j,k]:
+                        return False,None
+                
+                line = [box[i][0],box[i][1],box[j][0],box[j][1]]
+                sum_dist += line_to_point(line,vp)
+                
+
+    return True, sum_dist
 
 
 def line_to_point(line,point):

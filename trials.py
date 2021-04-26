@@ -92,9 +92,9 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
             # cv2.imshow("diff",diff)
             # cv2.waitKey(0)
             
-            if vps is not None and len(boxes) > 0 and frame_num > 7:
+            if vps is not None and len(boxes) > 0:
                 #try:
-                    boxes_3D = fit_3D_boxes(diff,boxes, vps[0], vps[1], vps[2], show = True,verbose = False, granularity = 1e-02,e_init = 3e-01)
+                    boxes_3D = fit_3D_boxes(diff,boxes, vps[0], vps[1], vps[2], show = False,verbose = False, granularity = 1e-02,e_init = 3e-01)
                 # except Exception as E:
                 #     print(E)
                 #     boxes_3D = []
@@ -112,8 +112,9 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
                 # plot 3D bboxes
                 if boxes_3D != "Error":
                     for box in boxes_3D:
-                        frame = plot_3D(frame,box,vp1,vp2,vp3,threshold = 200)
-                        
+                        #frame = plot_3D(frame,box,vp1,vp2,vp3,threshold = 200)
+                        frame = plot_3D_ordered(frame,box)
+
             
     
                 cv2.imshow("3D Estimated Bboxes",frame)
@@ -139,7 +140,7 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
 if __name__ == "__main__":
     test_sequence = "/home/worklab/Desktop/test_vid.mp4"
     test_sequence = "/home/worklab/Data/cv/video/5_min_18_cam_October_2020/ingest_session_00005/recording/record_p1c2_00000.mp4"
-    test_sequence = "/home/worklab/Documents/derek/2D-to-3D-cars/_data/record_p1c5_00001.mp4"
+    # test_sequence = "/home/worklab/Documents/derek/2D-to-3D-cars/_data/record_p1c5_00001.mp4"
 
     downsample = 2
     
