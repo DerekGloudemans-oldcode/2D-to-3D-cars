@@ -4,6 +4,8 @@ import numpy as np
 import math
 from itertools import permutations
 from scipy.spatial import ConvexHull
+from skimage.measure import label as sk_label
+import matplotlib.pyplot as plt
 
 # define a global color
 colors = np.round(np.random.rand(1000,3) * 255)
@@ -71,7 +73,7 @@ def plot_3D(frame,box,vp1,vp2,vp3,threshold = 100,color = None):
                 frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,1)
     return frame
 
-def plot_3D_ordered(frame,box,color = None):
+def plot_3D_ordered(frame,box,color = None,label = None):
     """
     Plots 3D points as boxes, drawing only line segments that point towards vanishing points
     """
@@ -104,7 +106,7 @@ def plot_3D_ordered(frame,box,color = None):
         for b in range(a,len(box)):
             bb = box[b]
             if DRAW[a][b] == 1:
-                frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,1)
+                frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,2)
             # if DRAW_BASE[a][b] == 1:
             #     frame = cv2.line(frame,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,2)
     
@@ -125,6 +127,15 @@ def plot_3D_ordered(frame,box,color = None):
     frame = cv2.circle(frame,(int(box[6][0]),int(box[6][1])),size,color,-1)
     color = (255,255,0)
     frame = cv2.circle(frame,(int(box[7][0]),int(box[7][1])),size,color,-1)
+    
+    if label is not None:
+        left = min([point[0] for point in box])
+        top  = min([point[1] for point in box])
+        frame = cv2.putText(frame,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,1,(0,0,0),3)
+        frame = cv2.putText(frame,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,1,(255,255,255),1)
+
+        
+    
     return frame
 
 
@@ -221,13 +232,50 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
     #plot_vp_boxes(diff,parameters,vp1,vp2,vp3) 
     
     diff_clip = np.clip(np.max(diff,axis = 2),0,1).astype(np.int8)
-    # make each diff object integer-unique so fitting one box is not affected by pixels in another
-    for idx, box in enumerate(boxes):
-        box = box.astype(int)
-        mask = (np.equal(diff_clip[box[1]:box[3],box[0]:box[2]],1).astype(np.int8) * (idx + 1)).astype(np.int8)
-        #diff_clip[box[1]:box[3],box[0]:box[2]] *= (idx+2)
-        diff_clip[box[1]:box[3],box[0]:box[2]] += mask
 
+    diff = cv2.threshold(diff,1,255,cv2.THRESH_BINARY)[1]
+    
+    for idx, box in enumerate(boxes):
+        # put a square in the center of each box to tie disparate diff chunks together
+        sq = 15
+        x = int((box[0] + box[2])/2.0)
+        y = int((box[1] + box[3])/2.0)
+        diff_clip[y-sq:y+sq,x-sq:x+sq] = 1
+        diff[y-sq:y+sq,x-sq:x+sq,:] = 255
+        
+    # get connected components
+    components = sk_label(diff_clip,background = 0,connectivity = 2).astype(np.int8)
+    component_idxs = []
+    
+    for idx,box in enumerate(boxes):
+        while True:
+            try:
+                x = int((box[0] + box[2])/2.0)
+                y = int((box[1] + box[3])/2.0)
+                component_idxs.append(components[y,x])
+                break
+            except:
+                if x < 0: x += 5
+                if y < 0: y += 5
+                if x > components.shape[1]: x -= 5
+                if y > components.shape[0]: y -= 5
+                
+    diff_clip = components    
+
+    # # make each diff object integer-unique so fitting one box is not affected by pixels in another
+    # for idx, box in enumerate(boxes):
+    #     box = box.astype(int)
+    #     mask = (np.equal(diff_clip[box[1]:box[3],box[0]:box[2]],1).astype(np.int8) * (idx + 1)).astype(np.int8)
+    #     diff_clip[box[1]:box[3],box[0]:box[2]] += mask
+
+    
+    # plt.imshow(diff_clip)
+    # plt.show()
+    
+    if show:
+        cv2.imshow("Frame",diff)
+        cv2.waitKey(0)
+    
     if verbose: print("\nInit/ preprocess took {} sec".format(time.time() - start))
     start = time.time()
     
@@ -257,7 +305,8 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
                 new_angle  = parameters[i,j] + (epsilon * sign)
                 slope = math.tan(new_angle*math.pi/180)
                 
-                ratio = dividing_line2(diff_clip,slope,vp,obj_idx = i + 2)
+                #ratio = dividing_line2(diff_clip,slope,vp,obj_idx = i + 2)
+                ratio = dividing_line2(diff_clip,slope,vp,obj_idx = component_idxs[i])
                 
                 if ratio > 0.5 :#or ratio < 1-cut_ratio:
                     parameters[i,j] = new_angle
@@ -362,8 +411,10 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
         polarities = []
         
         #get convex hull of intersection points to give counterclockwise ordering
-        hull_order = list(ConvexHull(all_intersections[i]).vertices)
-           
+        try:
+            hull_order = list(ConvexHull(all_intersections[i]).vertices)
+        except:
+            return "Error: convex hull"
                 
         for j, point in enumerate(box):
             point_vps = all_intersection_vps[i][j]
@@ -371,6 +422,7 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
             try:
                 hull_idx = hull_order.index(j)
             except ValueError:
+                return "Error: convex hull"
                 # point is not on covex hull
                 hull_idx = 0 # not a great solution but eh
                 
@@ -506,14 +558,15 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
           
         # enumerate all possible assignments of box points
         corners = [[0,0,0],
-                   [0,1,0],
-                   [1,0,0],
-                   [1,1,0],
-                   [0,0,1],
-                   [0,1,1],
-                   [1,0,1],
-                   [1,1,1]]
-        orders = list(permutations(corners))
+                    [0,1,0],
+                    [1,0,0],
+                    [1,1,0],
+                    [0,0,1],
+                    [0,1,1],
+                    [1,0,1],
+                    [1,1,1]]
+        #orders = list(permutations(corners))
+        orders = valid_orders(distances)
         ORDER = None
         count = 0
         
@@ -540,7 +593,19 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
             # 6. top front right
             # 7. top back left
             # 8. top back right
-            
+        
+        # orders = np.array(valid_orders(distances))
+        # all_vp_dist = np.zeros([len(orders),3])
+        # for oidx,order in enumerate(orders):
+        #         all_vp_dist[oidx,:] = order_dist(order,box,vps)
+        
+        # # divide each distance column by average distance in that column
+        # # avg = np.average(all_vp_dist,axis = 0)      
+        # # all_vp_dist = all_vp_dist/ avg[None,:]
+        # best = np.argmax(all_vp_dist.sum(axis = 1))
+        # ORDER = orders[best]
+        
+        
         sort_indices = [item[2]*4 + item[0]*2 + item[1] for item in ORDER]
         
         box = np.array(box)
@@ -557,12 +622,12 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
         # lastly, compute angle between vp1 and direction of travel to determine box front    
         if obj_travel is not None:
             vp_direction = [vp1[0]-box[0][0],vp1[1]-box[0][1]]
-            unit_vector_1 = vp_direction / np.linalg.norm(vp_direction)
-            unit_vector_2 = obj_travel / np.linalg.norm(obj_travel)
+            unit_vector_1 = vp_direction / (np.linalg.norm(vp_direction) + 1e-06)
+            unit_vector_2 = obj_travel /   (np.linalg.norm(obj_travel) + 1e-06)
             dot_product = np.dot(unit_vector_1, unit_vector_2)
             angle = np.arccos(dot_product) * 180/math.pi
             
-            if angle < 90:
+            if angle > 90:
                 # traveling towards VP
                 index = [3,2,1,0,7,6,5,4]
                 new_box_points = np.array(final_points)[index]
@@ -573,8 +638,110 @@ def fit_3D_boxes(diff,boxes,vp1,vp2,vp3,e_init =1e-01,granularity = 1e-01,show =
     
     if verbose: print("Finding orderings took {} sec".format(time.time() - start))
 
-    return sorted_box_points
+    try:
+        ORDER
+    except:
+        ORDER = []
+        best_dist = 1000
+    return sorted_box_points#,ORDER,best_dist
 
+def order_dist(order,box,vps):
+    sum_dist = [0,0,0]
+    for i in range(len(box)):
+        for j in range(i,len(box)):
+            if i==j:
+                continue
+            
+            # verify that the two points fall along the same line pointing to relevant vp
+            ord_diff = np.sum(np.abs(order[i] - order[j]))
+            if ord_diff == 1:
+                
+                if order[i,0] != order[j,0]:
+                    k = 0
+                elif order[i,1] != order[j,1]: 
+                    k = 1
+                else:
+                    k = 2
+                    
+                vp = vps[k]                
+                line = [box[i][0],box[i][1],box[j][0],box[j][1]]
+                sum_dist[k] += line_to_point(line,vp)
+                
+
+    return sum_dist
+
+def valid_orders(distances):
+    """
+    Consider any ordering. If two corners can validly be assigned [0,0,0], [0,0,1], they cannot be assigned the reverse
+    So we can repeatedly perform a check for i, and j, is a,b a valid assignment?
+    Then remove all orders in which a,b are invalidly assigned
+    """
+    corners = [[0,0,0],
+                [0,1,0],
+                [1,0,0],
+                [1,1,0],
+                [0,0,1],
+                [0,1,1],
+                [1,0,1],
+                [1,1,1]]
+   
+    current_orders = [[item] for item in corners]
+    iteration = 1
+    
+    while len(current_orders[0]) < 8:
+        next_orders = []
+        for order in current_orders:
+            # try adding each element in corners as next element
+            for corner in corners:
+                if corner in order:
+                    continue
+                else:
+                    test_order = order.copy()
+                    test_order.append(corner)
+                    while len(test_order) < 8:
+                        test_order.append([100,100,100]) # these won't contribute to anything
+                    VALID = check_valid(np.array(test_order),distances)
+                    if VALID:
+                        test_order = order.copy()
+                        test_order.append(corner)
+                        next_orders.append(test_order)
+        current_orders = next_orders
+    
+    return current_orders
+            
+def check_valid(order,distances):
+    for i in range(len(distances)):
+        for j in range(0,len(distances)):
+            if i==j:
+                continue
+            
+            
+            
+            ord_diff = np.sum(np.abs(order[i] - order[j]))
+            
+            if ord_diff == 1:
+                
+                
+                # verify that the two points fall along the same line pointing to relevant vp
+                
+                # find differing dim and verify constraints are satisfied
+                
+                if order[i,0] != order[j,0]:
+                    k = 0
+                elif order[i,1] != order[j,1]: 
+                    k = 1
+                else:
+                    k = 2
+                    
+                if order[i,k] == 1:
+                    if distances[i,k] < distances[j,k]:
+                        return False
+                else:
+                    if distances[i,k] > distances[j,k]:
+                        return False
+                
+               
+    return True
 
 def check_valid_order(order,distances,box,vps):
     sum_dist = 0
@@ -731,7 +898,8 @@ def plot_vp(sequence,vp1 = None,vp2 = None, vp3 = None,mesh_width = 200, ds = 1)
     cv2.imshow("frame",frame)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    
+    cv2.imwrite("axes.png",frame)
+
 
 def init_parameters(boxes,vp1,vp2,vp3,delta = 45,e_init = 1e-01):
     
@@ -765,7 +933,7 @@ def init_parameters(boxes,vp1,vp2,vp3,delta = 45,e_init = 1e-01):
         delta2 = np.abs(180/math.pi*math.atan2(diag,l2))
         delta3 = np.abs(180/math.pi*math.atan2(diag,l3))
 
-        buffer = 1.5
+        buffer = 2
         
         # also initialize epsilon here relative to overall box size
         parameters[b_idx,:] = np.array([a1-delta1*buffer,
@@ -830,14 +998,14 @@ def dividing_line2(diff,slope,vp,obj_idx = 1):
     
     
     
-def calc_diff(frame,avg_frame):
+def calc_diff(frame,avg_frame,threshold = 30):
     diff = np.clip(np.abs(frame.astype(int) - avg_frame.astype(int)),0,255)
     
     # kernel to remove small noise
     diff = cv2.blur(diff,(5,5)).astype(np.uint8)
     
     # threshold
-    _,diff = cv2.threshold(diff,30,255,cv2.THRESH_BINARY)
+    _,diff = cv2.threshold(diff,threshold,255,cv2.THRESH_BINARY)
     diff =  diff.astype(np.uint8) # + cv2.cvtColor(edges,cv2.COLOR_GRAY2RGB)
     
     return diff

@@ -58,7 +58,7 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
         frame_num += 1
         
         out_name = "output/{}.png".format(str(frame_num).zfill(4))
-        if not os.path.exists(out_name):
+        if frame_num > -1:
             # get detections
             im = np.array(frame)[:,:,[2,1,0]].copy()
             im = F.to_tensor(im)
@@ -85,16 +85,17 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
             # kernel to remove small noise
             diff = cv2.blur(diff,(5,5)).astype(np.uint8)
             
+           
             # threshold
             _,diff = cv2.threshold(diff,30,255,cv2.THRESH_BINARY)
             diff =  diff.astype(np.uint8) # + cv2.cvtColor(edges,cv2.COLOR_GRAY2RGB)
-           
+            
             # cv2.imshow("diff",diff)
             # cv2.waitKey(0)
             
-            if vps is not None and len(boxes) > 0:
+            if vps is not None and len(boxes) > 0 and frame_num > 20:
                 #try:
-                    boxes_3D = fit_3D_boxes(diff,boxes, vps[0], vps[1], vps[2], show = False,verbose = False, granularity = 1e-02,e_init = 3e-01)
+                    boxes_3D = fit_3D_boxes(diff,boxes, vps[0], vps[1], vps[2], show = True,verbose = False, granularity = 1e-02,e_init = 3e-02)
                 # except Exception as E:
                 #     print(E)
                 #     boxes_3D = []
@@ -110,16 +111,16 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
         
             
                 # plot 3D bboxes
-                if boxes_3D != "Error":
+                if "Error" not in boxes_3D:
                     for box in boxes_3D:
                         #frame = plot_3D(frame,box,vp1,vp2,vp3,threshold = 200)
                         frame = plot_3D_ordered(frame,box)
 
             
     
-                cv2.imshow("3D Estimated Bboxes",frame)
-                cv2.waitKey(1)
-                cv2.imwrite(out_name,frame)
+        cv2.imshow("3D Estimated Bboxes",frame)
+        cv2.waitKey(1)
+        #cv2.imwrite(out_name,frame)
             
         print("\r On frame: {}, FPS: {:5.2f}".format(frame_num, frame_num / (time.time() - start)),end = '\r', flush = True)
         torch.cuda.empty_cache()
@@ -130,7 +131,7 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
         if ret and ds != 1:
             frame = cv2.resize(frame,(frame.shape[1]//ds,frame.shape[0]//ds))
         
-        if frame_num > 200: # early video cutoff
+        if frame_num > 1000: # early video cutoff
             cap.release()
             break
        
@@ -139,8 +140,8 @@ def detect_3D(video_sequence,avg_frame = None, vps = None,ds = 1):
 
 if __name__ == "__main__":
     test_sequence = "/home/worklab/Desktop/test_vid.mp4"
-    test_sequence = "/home/worklab/Data/cv/video/5_min_18_cam_October_2020/ingest_session_00005/recording/record_p1c2_00000.mp4"
-    # test_sequence = "/home/worklab/Documents/derek/2D-to-3D-cars/_data/record_p1c5_00001.mp4"
+    test_sequence = "/home/worklab/Data/cv/video/5_min_18_cam_October_2020/ingest_session_00005/recording/record_p1c5_00001.mp4"
+    #test_sequence = "/home/worklab/Documents/derek/2D-to-3D-cars/_data/record_p1c5_00001.mp4"
 
     downsample = 2
     
@@ -195,7 +196,7 @@ if __name__ == "__main__":
         vp2 = find_vanishing_point(lines2)
         vp3 = find_vanishing_point(lines3)
         
-        #plot_vp(test_sequence,vp1 = vp1,vp2 = vp2,vp3 = vp3, ds  = downsample)
+        plot_vp(test_sequence,vp1 = vp1,vp2 = vp2,vp3 = vp3, ds  = downsample)
         
         
         
