@@ -11,6 +11,7 @@ import csv
 import numpy as np
 import multiprocessing as mp
 import cv2
+import os
 import queue
 import time
 
@@ -44,49 +45,35 @@ def annotate_3d_box(box_queue,results_queue,CONTINUE,vp):
             continue
         
         # fit box
-        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-03,e_init = 3e-01,show = False, verbose = False,obj_travel = direction)
+        box_3d = fit_3D_boxes(diff,box,vp[0],vp[1],vp[2],granularity = 1e-02,e_init = 3e-01,show = False, verbose = False,obj_travel = direction)
         
         result = [box_3d,obj_idx,frame_idx,diff,vp,frame]
         results_queue.put(result)
         
         
 def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,threshold = 30):
-    downsample = 2
 
     # load or compute average frame
-    
-    try:
-        name =  "config/" + sequence.split("/")[-1].split(".mp4")[0].split("_")[0] + "_avg.png"
-        avg_frame = cv2.imread(name)
-        if avg_frame is None:
-            raise FileNotFoundError
-    except:
-        avg_frame = get_avg_frame(sequence,ds = downsample).astype(np.uint8)
-        name = "config/" + sequence.split("/")[-1].split(".mp4")[0].split("_")[0] + "_avg.png"
-        cv2.imwrite(name,avg_frame)
+    name = "/home/worklab/Data/dataset_alpha/vp/{}_avg.png".format(sequence.split("/")[-1].split(".")[0])
+    avg_frame = cv2.imread(name)
+    if avg_frame is None:
+        raise FileNotFoundError
    
     
     
     
     # get axes annotations
-    try:
-        name = "config/" + sequence.split("/")[-1].split(".mp4")[0].split("_")[0] + "_axes.csv"
-        labels = []
-        with open(name,"r") as f:
-            read = csv.reader(f)
-            for row in read:
-                if len(row) == 5:
-                    row = [int(float(item)) for item in row]
-                elif len(row) > 5:
-                    row = [int(float(item)) for item in row[:5]] + [float(item) for item in row[5:]]
-                labels.append(np.array(row))
-        show_vp = False
-                        
-    except FileNotFoundError:
-        labeler = Axis_Labeler(sequence,ds = downsample)
-        labeler.run()
-        labels = labeler.axes
-        show_vp = True
+    name = "/home/worklab/Data/dataset_alpha/vp/{}_axes.csv".format(sequence.split("/")[-1].split("_")[0])
+    labels = []
+    with open(name,"r") as f:
+        read = csv.reader(f)
+        for row in read:
+            if len(row) == 5:
+                row = [int(float(item)) for item in row]
+            elif len(row) > 5:
+                row = [int(float(item)) for item in row[:5]] + [float(item) for item in row[5:]]
+            labels.append(np.array(row))
+    show_vp = False
     
     # get vanishing points
     if True:    
@@ -107,9 +94,7 @@ def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,t
         vp3 = find_vanishing_point(lines3)
         vps = [vp1,vp2,vp3]
 
-    if show_vp:
-        plot_vp(sequence,vp1 = vp1,vp2 = vp2,vp3 = vp3, ds  = downsample)
-        z
+   
     # load csv file annotations into list
     box_labels = []
     with open(label_file,"r") as f:
@@ -161,6 +146,7 @@ def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,t
             
     # main loop - queue and collect
     all_results = [] 
+    all_results_count = 0
     frame_results = {}
     box_count_per_frame = {}
     start_time = time.time()
@@ -172,7 +158,7 @@ def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,t
     time_since_last_result = time.time()    
  
     try:
-        while len(all_results) < len(box_labels) - removed_boxes: 
+        while all_results_count < len(box_labels) - removed_boxes: 
             
             if count <  len(box_labels):
             
@@ -240,11 +226,13 @@ def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,t
                 result = results_queue.get(timeout = 0)
                 if type(result[0]) == str:
                     all_results.append([])
+                    all_results_count += 1
                     box_3d = []
                     errors += 1
                 
                 else:
-                    all_results.append(result[0:2])    
+                    all_results.append(result[0:2])  
+                    all_results_count += 1
                     box_3d = result[0][0]
                 
                 time_since_last_result = time.time()
@@ -272,8 +260,6 @@ def process_boxes(sequence,label_file,downsample = 1,SHOW = True, timeout = 20,t
                 # fr = plot_3D_ordered(diff,box_3d[0])
                 # cv2.imshow("3D Estimated Bboxes",fr)
                 # cv2.waitKey(1)             
-        
-            
            
             
             except queue.Empty:
@@ -347,7 +333,7 @@ def write_csv_3D(label_file,frame_results,downsample = 1):
             output_rows.append(row)
     
     # write final output file
-    outfile = label_file.split(".csv")[0] + "_3D.csv"
+    outfile = label_file.split("/track_2d_unique")[0] + "/automatic_3d/" +  label_file.split("/")[-1].split(".csv")[0] + "_3D.csv"
     with open(outfile, mode='w') as f:
         out = csv.writer(f, delimiter=',')
         out.writerows(output_rows)
@@ -498,19 +484,98 @@ if __name__ == "__main__":
         skip_fitting = False
         sequence = "p1c6_00000"
         SHOW = True
-        threshold = 30
-        framerate = 10
+        threshold = 40
+        framerate = 15
     
-    for sequence in ["p1c1_00000"]:
-        # define file paths
-        vid_sequence = "/home/worklab/Data/cv/video/ground_truth_video_06162021/trimmed/{}.mp4".format(sequence)
-        labels = "/home/worklab/Data/dataset_alpha/track_unique/{}_track_outputs_unique.csv".format(sequence)
-        labels_3D = "/home/worklab/Data/dataset_alpha/track_unique/{}_track_outputs_unique_3D.csv".format(sequence)
+    # define file paths    
+    main_dir = "/home/worklab/Data/cv/video/ground_truth_video_06162021/segments"
     
+    # label all axes
+    if False:    
+        for sequence in os.listdir(main_dir):
+            vid_sequence = "/home/worklab/Data/cv/video/ground_truth_video_06162021/segments/{}".format(sequence)
+            labels = "/home/worklab/Data/dataset_alpha/track_2d_unique/{}_track_outputs.csv".format(sequence.split(".")[0])
+            labels_3D = "/home/worklab/Data/dataset_alpha/automatic_3d/{}_track_3D.csv".format(sequence.split(".")[0])
+        
+            try:
+                name = "/home/worklab/Data/dataset_alpha/vp/{}_axes.csv".format(sequence.split("_")[0])
+                labels = []
+                with open(name,"r") as f:
+                    read = csv.reader(f)
+                    for row in read:
+                        if len(row) == 5:
+                            row = [int(float(item)) for item in row]
+                        elif len(row) > 5:
+                            row = [int(float(item)) for item in row[:5]] + [float(item) for item in row[5:]]
+                        labels.append(np.array(row))
+                continue
+                                
+            except FileNotFoundError:
+                name = "/home/worklab/Data/dataset_alpha/vp/{}_axes.csv".format(sequence.split("_")[0])
+                labeler = Axis_Labeler(vid_sequence,ds = 1)
+                labeler.run()
+                labels = labeler.axes
+            
+            # get vanishing points
+            if True:    
+                lines1 = []
+                lines2 = []
+                lines3 = []
+                for item in labels:
+                    if item[4] == 0:
+                        lines1.append(item)
+                    elif item[4] == 1:
+                        lines2.append(item)
+                    elif item[4] == 2:
+                        lines3.append(item)
+                
+                # get all axis labels for a particular axis orientation
+                vp1 = find_vanishing_point(lines1)
+                vp2 = find_vanishing_point(lines2)
+                vp3 = find_vanishing_point(lines3)
+                vps = [vp1,vp2,vp3]
+                plot_vp(vid_sequence,vp1 = vp1,vp2 = vp2,vp3 = vp3, ds  = 1)
+                labeler.save_as(name)
+
+
     
-        if not skip_fitting:
-            process_boxes(vid_sequence,labels,downsample = 2,SHOW = SHOW,threshold = threshold,timeout = 60)    
+    # get one average frame per sequence
+    if False:
+        for sequence in os.listdir(main_dir):
+            vid_sequence = "/home/worklab/Data/cv/video/ground_truth_video_06162021/segments/{}".format(sequence)
+            labels = "/home/worklab/Data/dataset_alpha/track_2d_unique/{}_track_outputs.csv".format(sequence.split(".")[0])
+            labels_3D = "/home/worklab/Data/dataset_alpha/automatic_3d/{}_track_3D.csv".format(sequence.split(".")[0])
+                
+            # load or compute average frame
+            try:
+                name = "/home/worklab/Data/dataset_alpha/vp/{}_avg.png".format(sequence.split(".")[0])
+                avg_frame = cv2.imread(name)
+                if avg_frame is None:
+                    raise FileNotFoundError
+            except:
+                avg_frame = get_avg_frame(vid_sequence,n = 1000, ds = 1).astype(np.uint8)
+                name = "/home/worklab/Data/dataset_alpha/vp/{}_avg.png".format(sequence.split(".")[0])
+                cv2.imwrite(name,avg_frame)
+           
+        
+        
     
-        plot_3D_csv(vid_sequence,labels_3D,framerate = framerate)
+
+    if True:
+        sequences = os.listdir(main_dir)
+        sequences.sort()
+        for sequence in sequences:
+            vid_sequence = "/home/worklab/Data/cv/video/ground_truth_video_06162021/segments/{}".format(sequence)
+            labels = "/home/worklab/Data/dataset_alpha/track_2d_unique/{}_track_outputs.csv".format(sequence.split(".")[0])
+            labels_3D = "/home/worklab/Data/dataset_alpha/automatic_3d/{}_track_outputs_3D.csv".format(sequence.split(".")[0])
+            
+            try:
+                with open(labels_3D) as f:
+                    print("{} already processed".format(vid_sequence))
+
+            except:   
+                process_boxes(vid_sequence,labels,downsample = 1,SHOW = SHOW,threshold = threshold,timeout = 20)    
+                print("Finished {}".format(vid_sequence))
+            #plot_3D_csv(vid_sequence,labels_3D,framerate = framerate)
 
 

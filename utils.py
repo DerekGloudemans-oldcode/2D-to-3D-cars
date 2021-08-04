@@ -883,6 +883,7 @@ def plot_vp(sequence,vp1 = None,vp2 = None, vp3 = None,mesh_width = 200, ds = 1)
             edge_pts.append((int(0),int(y)))
             edge_pts.append((int(frame.shape[1]),int(y)))  
         
+        print(vp1,vp2,vp3)
         if vp1 is not None:
              for point in edge_pts:
                  frame = cv2.line(frame,(int(vp1[0]),int(vp1[1])),point,(0,255,0),1)

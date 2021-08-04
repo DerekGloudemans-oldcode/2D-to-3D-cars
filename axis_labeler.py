@@ -136,7 +136,17 @@ class Axis_Labeler():
         name = "config/" + name.split(".csv")[0].split("_")[1] + ".png"
         cv2.imwrite(name,self.cur_image)
         
+    def save_as(self,path):
+        outputs = []
+        for item in self.axes:
+            output = list(item)
+            outputs.append(output)
         
+        with open(path,"w") as f:
+            writer = csv.writer(f, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+            writer.writerows(outputs)
+        print("Saved axes as file {}".format(path))
+            
     def clear(self):
         self.axes = []
         self.cur_image = self.frames[self.frame-1].copy()
@@ -182,3 +192,4 @@ class Axis_Labeler():
                self.undo()
            elif key == ord("d"):
                self.remove()
+               

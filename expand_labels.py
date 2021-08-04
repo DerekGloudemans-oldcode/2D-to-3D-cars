@@ -25,9 +25,12 @@ def expand_labels(directory):
     for file in os.listdir(directory):
         file = os.path.join(directory,file)
         
-        p = int(file.split("record_")[1][1])
-        c = int(file.split("record_")[1][3])
-        n = int(file.split("record")[1].split("_")[2])
+        # p = int(file.split("record_")[1][1])
+        # c = int(file.split("record_")[1][3])
+        # n = int(file.split("record")[1].split("_")[2])
+        p = int(file.split("/")[-1][1])
+        c = int(file.split("/")[-1][3])
+        n = int(file.split("/")[-1][5])
         
         pcn = int(str(p) + str(c) + str(n))
         
@@ -64,5 +67,5 @@ def expand_labels(directory):
     
     
 if __name__ == "__main__":
-    directory = "/home/worklab/Documents/derek/i24-dataset-gen/output/track_corrected_unique"
+    directory = "/home/worklab/Data/dataset_alpha/track_2d_unique"
     expand_labels(directory)
